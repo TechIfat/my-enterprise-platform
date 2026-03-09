@@ -23,10 +23,16 @@ This repository tracks a 12-week intensive build of an Enterprise Agentic Platfo
 - [ ] **Week 4: The Developer Experience (SDK Design)**
 
 ### Phase 2: Governance, Security & Ops (Upcoming)
-- [ ] Week 5: Observability & Tracing (OpenTelemetry)
-- [ ] Week 6: DevSecAI Guardrails (NVIDIA NeMo)
-- [ ] Week 7: Eval-Driven Development
-- [ ] Week 8: Edge-Cloud Routing
+- [ ] **Week 5: Observability & Tracing (OpenTelemetry)**
+- [ ] **Week 6: DevSecAI Guardrails (NVIDIA NeMo)**
+-[ ] **Week 7: Eval-Driven Development**
+- [ ] **Week 8: Edge-Cloud Routing**
+
+### Phase 3: Strategy & Advanced Patterns (Upcoming)
+- [ ] **Week 9: Legacy Integration Patterns**
+- [ ] **Week 10: Human-in-the-Loop (HITL) Workflows**
+- [ ] **Week 11: Multi-Agent Consensus & Swarms**
+-[ ] **Week 12: The Architect's Capstone (Reference Architecture)**
 
 ---
 
