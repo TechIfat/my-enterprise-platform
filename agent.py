@@ -1,3 +1,4 @@
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 import asyncio
 import os
 import json
@@ -96,31 +97,47 @@ async def run_agent_loop(user_query: str):
                     return "tools"
                 return END
 
-            # --- COMPILE THE GRAPH ---
+            # --- DEFINE THE GRAPH STRUCTURE ---
+            # (This is what got accidentally deleted!)
             graph_builder = StateGraph(State)
             graph_builder.add_node("chatbot", chatbot_node)
             graph_builder.add_node("tools", tool_node)
             
-            # Define the flow
             graph_builder.add_edge(START, "chatbot")
             graph_builder.add_conditional_edges("chatbot", route_tools, {"tools": "tools", END: END})
-            graph_builder.add_edge("tools", "chatbot") # Loop back to chatbot after tool runs
-            
-            graph = graph_builder.compile()
+            graph_builder.add_edge("tools", "chatbot")
 
-            # --- RUN THE GRAPH ---
-            initial_state = {"messages":[HumanMessage(content=user_query)]}
-            
-            # We use astream to watch the graph execute step-by-step
-            async for event in graph.astream(initial_state):
-                for node_name, node_state in event.items():
-                    print(f"✅ Finished Node: '{node_name}'")
-            
-            # Print Final Output
-            final_message = node_state["messages"][-1]
-            print(f"\n🤖 AGENT FINAL ANSWER: {final_message.content}")
+            # --- COMPILE THE GRAPH WITH ASYNC PERSISTENCE ---
+            # NEW: We use an async context manager for the database
+            async with AsyncSqliteSaver.from_conn_string("agent_memory.db") as memory:
+                
+                # Compile with the async checkpointer
+                graph = graph_builder.compile(checkpointer=memory)
+
+                # --- RUN THE GRAPH INTERACTIVELY ---
+                print("\nType 'quit' to exit.")
+                
+                # The thread_id isolates conversations. 
+                config = {"configurable": {"thread_id": "session_001"}}
+
+                while True:
+                    user_input = input("\n👤 YOU: ")
+                    if user_input.lower() in['quit', 'exit', 'q']:
+                        print("Exiting...")
+                        break
+                        
+                    # Notice we pass the config (which contains the thread_id)
+                    events = graph.astream(
+                        {"messages":[HumanMessage(content=user_input)]},
+                        config=config,
+                        stream_mode="values"
+                    )
+                    
+                    async for event in events:
+                        latest_msg = event["messages"][-1]
+                        if isinstance(latest_msg, AIMessage) and latest_msg.content:
+                            print(f"🤖 AGENT: {latest_msg.content}")
 
 if __name__ == "__main__":
-    # A complex query that requires MULTIPLE steps
-    query = "What is the stock price of AAPL? And based on its risk profile, is it a safe bet?"
-    asyncio.run(run_agent_loop(query))
+    # We no longer pass a hardcoded query. It's interactive now!
+    asyncio.run(run_agent_loop(""))
