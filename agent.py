@@ -1,4 +1,7 @@
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from rich.console import Console
+from rich.panel import Panel
+
+console = Console()
 import asyncio
 import os
 import json
@@ -7,137 +10,172 @@ from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-# --- NEW LANGGRAPH IMPORTS ---
-from typing import Annotated
+# LangGraph & AI Imports
+from typing import Annotated, Literal
 from typing_extensions import TypedDict
+from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 load_dotenv()
 
-# 1. Define the Server to Connect to (The Nervous System)
-server_params = StdioServerParameters(
-    command="uv",
-    args=["run", "finance_server.py"],
-    env=None
-)
+server_params = StdioServerParameters(command="uv", args=["run", "finance_server.py"], env=None)
 
-# 2. Define the State (The Graph's Memory)
-# This dictates what data is passed between nodes.
+# 1. The State now tracks messages AND the "next" agent to route to
 class State(TypedDict):
-    # add_messages is a reducer: it appends new messages to the existing list
     messages: Annotated[list, add_messages]
+    next: str
 
-async def run_agent_loop(user_query: str):
-    print(f"\n🤖 USER: {user_query}")
-    
+# 2. Pydantic Schema for Strict Supervisor Routing
+# This forces the LLM to ONLY output one of these three exact strings.
+class RouteDecision(BaseModel):
+    next_agent: Literal["Market_Analyst", "Risk_Assessor", "FINISH"] = Field(
+        description="The next agent to route to, or FINISH if the user's request is fully answered."
+    )
+
+async def run_multi_agent_loop(user_query: str):
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
-            
-            # --- INITIALIZE MCP TOOLS ---
             await session.initialize()
             tools_list = await session.list_tools()
             
-            # Convert MCP tools to OpenAI format
-            openai_tools =[]
-            for tool in tools_list.tools:
-                openai_tools.append({
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.inputSchema
-                    }
-                })
+            # Map tools by name for easy assignment
+            tools_by_name = {t.name: t for t in tools_list.tools}
             
-            print(f"🔌 Connected to MCP. Found tools: {[t.name for t in tools_list.tools]}")
+            def format_tool(tool):
+                return {"type": "function", "function": {"name": tool.name, "description": tool.description, "parameters": tool.inputSchema}}
 
-            # --- BUILD THE GRAPH NODES ---
-            
-            # Node 1: The Brain (LLM)
+            # 3. Define the LLM
             llm = ChatOpenAI(model="gpt-4o", temperature=0)
-            llm_with_tools = llm.bind_tools(openai_tools)
 
-            async def chatbot_node(state: State):
-                """Calls the LLM and appends the response to the state."""
-                response = await llm_with_tools.ainvoke(state["messages"])
-                return {"messages": [response]}
-
-            # Node 2: The Hands (Tool Execution)
-            async def tool_node(state: State):
-                """Executes MCP tools and appends results to the state."""
-                last_message = state["messages"][-1]
-                tool_results =[]
+            # -----------------------------------------
+            # NODE 1: THE SUPERVISOR
+            # -----------------------------------------
+            async def supervisor_node(state: State):
+                print("👔 SUPERVISOR: Thinking about who should handle this...")
+                system_prompt = SystemMessage(content="""You are a Banking Supervisor routing tasks. 
+                Your team:
+                - Market_Analyst: Retrieves stock prices.
+                - Risk_Assessor: Evaluates company risk profiles.
+                RULES:
+                1. Review the conversation history. Worker agents will submit their reports to you as Human messages.
+                2. If the user asks for a price, and there is NO report from the Market_Analyst, route to Market_Analyst.
+                3. If the user asks for risk, and there is NO report from the Risk_Assessor, route to Risk_Assessor.
+                4. If the requested information is ALREADY in the chat history, output FINISH.
+                """)
                 
-                # Loop through all tools the LLM decided to call
-                for tool_call in last_message.tool_calls:
-                    func_name = tool_call["name"]
-                    func_args = tool_call["args"]
-                    print(f"🧠 GRAPH ROUTING: Executing tool -> {func_name}({func_args})")
-                    
-                    # Call the actual MCP server
-                    result = await session.call_tool(func_name, func_args)
-                    
-                    # Format result for LangGraph
-                    tool_results.append(
-                        ToolMessage(
-                            content=result.content[0].text,
-                            tool_call_id=tool_call["id"]
-                        )
-                    )
-                return {"messages": tool_results}
+                messages = [system_prompt] + state["messages"]
+                
+                # We use structured_output to force Pydantic validation
+                router_llm = llm.with_structured_output(RouteDecision)
+                decision = await router_llm.ainvoke(messages)
+                
+                print(f"👔 SUPERVISOR DECISION: Route to -> {decision.next_agent}")
+                return {"next": decision.next_agent}
 
-            # --- BUILD THE GRAPH EDGES (ROUTING LOGIC) ---
-            def route_tools(state: State):
-                """Decides if we need to use a tool, or if we are done."""
-                last_message = state["messages"][-1]
-                if last_message.tool_calls:
-                    return "tools"
-                return END
+            # -----------------------------------------
+            # NODE 2: MARKET ANALYST (Specialist)
+            # -----------------------------------------
+            async def market_analyst_node(state: State):
+                print("📈 MARKET ANALYST: Analysing price data...")
+                price_tool = [format_tool(tools_by_name["get_stock_price"])]
+                agent_llm = llm.bind_tools(price_tool)
+                
+                response = await agent_llm.ainvoke(state["messages"])
+                
+                if response.tool_calls:
+                    tool_messages =[]
+                    # NEW: Loop through ALL requested tool calls
+                    for tool_call in response.tool_calls:
+                        result = await session.call_tool(tool_call["name"], tool_call["args"])
+                        tool_messages.append(ToolMessage(content=result.content[0].text, tool_call_id=tool_call["id"]))
+                    
+                    # Feed the original response PLUS all tool messages back to the LLM
+                    final_response = await agent_llm.ainvoke(state["messages"] + [response] + tool_messages)
+                    return {"messages":[HumanMessage(content=f"Market Analyst Report: {final_response.content}", name="Market_Analyst")]}
+                
+                return {"messages": [HumanMessage(content=response.content, name="Market_Analyst")]}
 
-            # --- DEFINE THE GRAPH STRUCTURE ---
-            # (This is what got accidentally deleted!)
-            graph_builder = StateGraph(State)
-            graph_builder.add_node("chatbot", chatbot_node)
-            graph_builder.add_node("tools", tool_node)
+            # -----------------------------------------
+            # NODE 3: RISK ASSESSOR (Specialist)
+            # -----------------------------------------
+            async def risk_assessor_node(state: State):
+                print("🛡️ RISK ASSESSOR: Evaluating compliance and risk...")
+                risk_tool = [format_tool(tools_by_name["get_company_risk_profile"])]
+                agent_llm = llm.bind_tools(risk_tool)
+                
+                response = await agent_llm.ainvoke(state["messages"])
+                
+                if response.tool_calls:
+                    tool_messages =[]
+                    # NEW: Loop through ALL requested tool calls
+                    for tool_call in response.tool_calls:
+                        result = await session.call_tool(tool_call["name"], tool_call["args"])
+                        tool_messages.append(ToolMessage(content=result.content[0].text, tool_call_id=tool_call["id"]))
+                    
+                    final_response = await agent_llm.ainvoke(state["messages"] +[response] + tool_messages)
+                    return {"messages":[HumanMessage(content=f"Risk Assessor Report: {final_response.content}", name="Risk_Assessor")]}
+                return {"messages": [HumanMessage(content=response.content, name="Risk_Assessor")]}
+            # -----------------------------------------
+            # BUILD THE MULTI-AGENT GRAPH
+            # -----------------------------------------
+            builder = StateGraph(State)
             
-            graph_builder.add_edge(START, "chatbot")
-            graph_builder.add_conditional_edges("chatbot", route_tools, {"tools": "tools", END: END})
-            graph_builder.add_edge("tools", "chatbot")
+            builder.add_node("Supervisor", supervisor_node)
+            builder.add_node("Market_Analyst", market_analyst_node)
+            builder.add_node("Risk_Assessor", risk_assessor_node)
 
-            # --- COMPILE THE GRAPH WITH ASYNC PERSISTENCE ---
-            # NEW: We use an async context manager for the database
+            # All worker nodes report back to the Supervisor
+            builder.add_edge("Market_Analyst", "Supervisor")
+            builder.add_edge("Risk_Assessor", "Supervisor")
+
+            # The Supervisor's routing function checks the "next" state variable
+            builder.add_conditional_edges(
+                "Supervisor",
+                lambda state: state["next"], # Reads the Pydantic output directly!
+                {
+                    "Market_Analyst": "Market_Analyst",
+                    "Risk_Assessor": "Risk_Assessor",
+                    "FINISH": END
+                }
+            )
+
+            builder.add_edge(START, "Supervisor")
+
+            # Compile with Memory
             async with AsyncSqliteSaver.from_conn_string("agent_memory.db") as memory:
-                
-                # Compile with the async checkpointer
-                graph = graph_builder.compile(checkpointer=memory)
+                graph = builder.compile(checkpointer=memory)
 
-                # --- RUN THE GRAPH INTERACTIVELY ---
-                print("\nType 'quit' to exit.")
-                
-                # The thread_id isolates conversations. 
-                config = {"configurable": {"thread_id": "session_001"}}
+                print("\n🏦 BANKING MULTI-AGENT SWARM ONLINE. Type 'quit' to exit.")
+                # Added recursion_limit: If the graph hits 15 steps, it throws an error and stops burning tokens!
+                config = {
+                    "configurable": {"thread_id": "session_002"}, 
+                    "recursion_limit": 15,
+                }
 
                 while True:
                     user_input = input("\n👤 YOU: ")
-                    if user_input.lower() in['quit', 'exit', 'q']:
-                        print("Exiting...")
+                    if user_input.lower() in ['quit', 'exit', 'q']:
                         break
                         
-                    # Notice we pass the config (which contains the thread_id)
-                    events = graph.astream(
-                        {"messages":[HumanMessage(content=user_input)]},
-                        config=config,
-                        stream_mode="values"
-                    )
+                    events = graph.astream({"messages": [HumanMessage(content=user_input)]}, config=config)
                     
                     async for event in events:
-                        latest_msg = event["messages"][-1]
-                        if isinstance(latest_msg, AIMessage) and latest_msg.content:
-                            print(f"🤖 AGENT: {latest_msg.content}")
+                        # Find the node name and the state update
+                        for node_name, state_update in event.items():
+                            if "messages" in state_update:
+                                latest_msg = state_update["messages"][-1]
+                                
+                                # Format the output beautifully based on who is speaking
+                                if node_name == "Supervisor":
+                                    console.print(f"[bold magenta]👔 SUPERVISOR:[/bold magenta] Routing to {state_update.get('next', 'UNKNOWN')}")
+                                elif node_name == "Market_Analyst":
+                                    console.print(Panel(latest_msg.content, title="📈 MARKET ANALYST", border_style="green"))
+                                elif node_name == "Risk_Assessor":
+                                    console.print(Panel(latest_msg.content, title="🛡️ RISK ASSESSOR", border_style="red"))
 
 if __name__ == "__main__":
-    # We no longer pass a hardcoded query. It's interactive now!
-    asyncio.run(run_agent_loop(""))
+    asyncio.run(run_multi_agent_loop(""))
