@@ -1,3 +1,9 @@
+import os
+from dotenv import load_dotenv
+# Load environment variables for OpenAI Embeddings
+load_dotenv()
+from langchain_openai import OpenAIEmbeddings
+from langchain_chroma import Chroma
 from fastmcp import FastMCP
 from pydantic import Field
 import random
@@ -37,6 +43,29 @@ def get_company_risk_profile(ticker: str) -> str:
     risk = random.choice(["Low", "Medium", "High", "Critical"])
     return f"Risk Profile for {ticker.upper()}: {risk}"
 
+@mcp.tool()
+def search_internal_knowledge_base(query: str) -> str:
+    """
+    Searches the bank's internal proprietary knowledge base for compliance rules, 
+    risk guidelines, and trading policies.
+    """
+    print(f"--- Log: Searching internal DB for: {query} ---")
+    
+    # 1. Connect to the existing Vector Database
+    embeddings = OpenAIEmbeddings()
+    vectorstore = Chroma(
+        persist_directory="./chroma_db", 
+        embedding_function=embeddings
+    )
+    
+    # 2. Perform a similarity search (Find the top 1 most relevant document)
+    docs = vectorstore.similarity_search(query, k=1)
+    
+    if docs:
+        best_match = docs[0]
+        return f"INTERNAL POLICY FOUND: {best_match.page_content} (Source: {best_match.metadata['source']})"
+    
+    return "No relevant internal policies found for this query."
 if __name__ == "__main__":
     # Run the MCP server
     mcp.run()

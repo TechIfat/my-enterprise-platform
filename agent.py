@@ -59,11 +59,12 @@ async def run_multi_agent_loop(user_query: str):
                 system_prompt = SystemMessage(content="""You are a Banking Supervisor routing tasks. 
                 Your team:
                 - Market_Analyst: Retrieves stock prices.
-                - Risk_Assessor: Evaluates company risk profiles.
+                - Risk_Assessor: Evaluates company risk profiles AND checks internal compliance/trading policies.
+                
                 RULES:
                 1. Review the conversation history. Worker agents will submit their reports to you as Human messages.
                 2. If the user asks for a price, and there is NO report from the Market_Analyst, route to Market_Analyst.
-                3. If the user asks for risk, and there is NO report from the Risk_Assessor, route to Risk_Assessor.
+                3. If the user asks for risk OR compliance rules, and there is NO report from the Risk_Assessor, route to Risk_Assessor.
                 4. If the requested information is ALREADY in the chat history, output FINISH.
                 """)
                 
@@ -102,23 +103,38 @@ async def run_multi_agent_loop(user_query: str):
             # -----------------------------------------
             # NODE 3: RISK ASSESSOR (Specialist)
             # -----------------------------------------
+            # NODE 3: RISK ASSESSOR (Specialist)
+            # -----------------------------------------
             async def risk_assessor_node(state: State):
                 print("🛡️ RISK ASSESSOR: Evaluating compliance and risk...")
-                risk_tool = [format_tool(tools_by_name["get_company_risk_profile"])]
-                agent_llm = llm.bind_tools(risk_tool)
                 
-                response = await agent_llm.ainvoke(state["messages"])
+                risk_tools =[
+                    format_tool(tools_by_name["get_company_risk_profile"]),
+                    format_tool(tools_by_name["search_internal_knowledge_base"])
+                ]
+                agent_llm = llm.bind_tools(risk_tools)
+                
+                # NEW: The Strict Persona
+                system_prompt = SystemMessage(content="""You are the Chief Risk & Compliance Officer for the Bank.
+                You MUST ALWAYS use the 'search_internal_knowledge_base' tool to check for internal trading limits, 
+                Tier rules, or required sign-offs before you approve any transaction. Never guess the rules.""")
+                
+                # Prepend the system prompt to the messages we send to the LLM
+                messages_to_pass = [system_prompt] + state["messages"]
+                
+                response = await agent_llm.ainvoke(messages_to_pass)
                 
                 if response.tool_calls:
                     tool_messages =[]
-                    # NEW: Loop through ALL requested tool calls
                     for tool_call in response.tool_calls:
                         result = await session.call_tool(tool_call["name"], tool_call["args"])
                         tool_messages.append(ToolMessage(content=result.content[0].text, tool_call_id=tool_call["id"]))
                     
-                    final_response = await agent_llm.ainvoke(state["messages"] +[response] + tool_messages)
+                    # Pass the system prompt again for the final synthesis
+                    final_response = await agent_llm.ainvoke(messages_to_pass + [response] + tool_messages)
                     return {"messages":[HumanMessage(content=f"Risk Assessor Report: {final_response.content}", name="Risk_Assessor")]}
-                return {"messages": [HumanMessage(content=response.content, name="Risk_Assessor")]}
+                
+                return {"messages":[HumanMessage(content=response.content, name="Risk_Assessor")]}
             # -----------------------------------------
             # BUILD THE MULTI-AGENT GRAPH
             # -----------------------------------------
@@ -152,7 +168,7 @@ async def run_multi_agent_loop(user_query: str):
                 print("\n🏦 BANKING MULTI-AGENT SWARM ONLINE. Type 'quit' to exit.")
                 # Added recursion_limit: If the graph hits 15 steps, it throws an error and stops burning tokens!
                 config = {
-                    "configurable": {"thread_id": "session_002"}, 
+                    "configurable": {"thread_id": "session_005"}, 
                     "recursion_limit": 15,
                 }
 
