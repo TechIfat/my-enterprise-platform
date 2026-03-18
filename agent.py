@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 load_dotenv()
@@ -46,10 +46,14 @@ async def run_multi_agent_loop(user_query: str):
             tools_by_name = {t.name: t for t in tools_list.tools}
             
             def format_tool(tool):
-                return {"type": "function", "function": {"name": tool.name, "description": tool.description, "parameters": tool.inputSchema}}
+                return {
+                    "name": tool.name, 
+                    "description": tool.description, 
+                    "parameters": tool.inputSchema
+                }
 
             # 3. Define the LLM
-            llm = ChatOpenAI(model="gpt-4o", temperature=0)
+            llm = ChatAnthropic(model_name="claude-sonnet-4-6", temperature=0)
 
             # -----------------------------------------
             # NODE 1: THE SUPERVISOR
@@ -80,48 +84,65 @@ async def run_multi_agent_loop(user_query: str):
             # -----------------------------------------
             # NODE 2: MARKET ANALYST (Specialist)
             # -----------------------------------------
+            # Claude sometimes returns a list of blocks instead of a simple string. 
+            # This cleans it up so our terminal UI stays beautiful.
+            def extract_anthropic_text(content):
+                if isinstance(content, str):
+                    return content
+                elif isinstance(content, list):
+                    # Extract only the text blocks, ignore the raw tool_use JSON
+                    return "\n".join(block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text")
+                return str(content)
+
+            # -----------------------------------------
+            # NODE 2: MARKET ANALYST (Specialist)
+            # -----------------------------------------
             async def market_analyst_node(state: State):
                 print("📈 MARKET ANALYST: Analysing price data...")
-                price_tool = [format_tool(tools_by_name["get_stock_price"])]
+                price_tool =[format_tool(tools_by_name["get_stock_price"])]
                 agent_llm = llm.bind_tools(price_tool)
                 
                 response = await agent_llm.ainvoke(state["messages"])
                 
                 if response.tool_calls:
                     tool_messages =[]
-                    # NEW: Loop through ALL requested tool calls
                     for tool_call in response.tool_calls:
                         result = await session.call_tool(tool_call["name"], tool_call["args"])
                         tool_messages.append(ToolMessage(content=result.content[0].text, tool_call_id=tool_call["id"]))
                     
-                    # Feed the original response PLUS all tool messages back to the LLM
                     final_response = await agent_llm.ainvoke(state["messages"] + [response] + tool_messages)
-                    return {"messages":[HumanMessage(content=f"Market Analyst Report: {final_response.content}", name="Market_Analyst")]}
+                    
+                    # CLEANUP CLAUDE'S OUTPUT
+                    clean_text = extract_anthropic_text(final_response.content)
+                    return {"messages":[HumanMessage(content=f"Market Analyst Report:\n{clean_text}", name="Market_Analyst")]}
                 
-                return {"messages": [HumanMessage(content=response.content, name="Market_Analyst")]}
+                # CLEANUP CLAUDE'S OUTPUT (Fallback)
+                clean_text = extract_anthropic_text(response.content)
+                return {"messages":[HumanMessage(content=clean_text, name="Market_Analyst")]}
 
-            # -----------------------------------------
-            # NODE 3: RISK ASSESSOR (Specialist)
             # -----------------------------------------
             # NODE 3: RISK ASSESSOR (Specialist)
             # -----------------------------------------
             async def risk_assessor_node(state: State):
                 print("🛡️ RISK ASSESSOR: Evaluating compliance and risk...")
                 
-                risk_tools =[
+                risk_tools = [
                     format_tool(tools_by_name["get_company_risk_profile"]),
                     format_tool(tools_by_name["search_internal_knowledge_base"])
                 ]
                 agent_llm = llm.bind_tools(risk_tools)
                 
-                # NEW: The Strict Persona
+                # The Strict Persona
                 system_prompt = SystemMessage(content="""You are the Chief Risk & Compliance Officer for the Bank.
                 You MUST ALWAYS use the 'search_internal_knowledge_base' tool to check for internal trading limits, 
-                Tier rules, or required sign-offs before you approve any transaction. Never guess the rules.""")
+                Tier rules, or required sign-offs.
                 
-                # Prepend the system prompt to the messages we send to the LLM
+                CRITICAL FALLBACK RULE: 
+                If the database tool returns "No relevant internal policies found", DO NOT hallucinate a policy. 
+                You must explicitly state: "No specific internal compliance policy exists for this transaction. Standard market risk applies."
+                """)
+                
                 messages_to_pass = [system_prompt] + state["messages"]
-                
                 response = await agent_llm.ainvoke(messages_to_pass)
                 
                 if response.tool_calls:
@@ -130,11 +151,15 @@ async def run_multi_agent_loop(user_query: str):
                         result = await session.call_tool(tool_call["name"], tool_call["args"])
                         tool_messages.append(ToolMessage(content=result.content[0].text, tool_call_id=tool_call["id"]))
                     
-                    # Pass the system prompt again for the final synthesis
                     final_response = await agent_llm.ainvoke(messages_to_pass + [response] + tool_messages)
-                    return {"messages":[HumanMessage(content=f"Risk Assessor Report: {final_response.content}", name="Risk_Assessor")]}
+                    
+                    # CLEANUP CLAUDE'S OUTPUT
+                    clean_text = extract_anthropic_text(final_response.content)
+                    return {"messages":[HumanMessage(content=f"Risk Assessor Report:\n{clean_text}", name="Risk_Assessor")]}
                 
-                return {"messages":[HumanMessage(content=response.content, name="Risk_Assessor")]}
+                # CLEANUP CLAUDE'S OUTPUT (Fallback)
+                clean_text = extract_anthropic_text(response.content)
+                return {"messages":[HumanMessage(content=clean_text, name="Risk_Assessor")]}
             # -----------------------------------------
             # BUILD THE MULTI-AGENT GRAPH
             # -----------------------------------------
@@ -168,7 +193,7 @@ async def run_multi_agent_loop(user_query: str):
                 print("\n🏦 BANKING MULTI-AGENT SWARM ONLINE. Type 'quit' to exit.")
                 # Added recursion_limit: If the graph hits 15 steps, it throws an error and stops burning tokens!
                 config = {
-                    "configurable": {"thread_id": "session_005"}, 
+                    "configurable": {"thread_id": "session_013"}, 
                     "recursion_limit": 15,
                 }
 

@@ -16,10 +16,15 @@ This repository tracks a 12-week intensive build of an Enterprise Agentic Platfo
   - Built a Model Context Protocol (MCP) server (`finance_server.py`) to decouple LLM logic from data tools.
   - Implemented initial stateless runtime.
   - *ADR 001: Adopted MCP for secure, scalable tool execution.*
-- [ ] **Week 2: State & Orchestration (LangGraph)**
+  - *ADR 002: Stateless Runtime vs. Stateful Orchestration.*
+- [x] **Week 2: State & Orchestration (LangGraph)**
   - Migrated linear scripts to Directed Acyclic Graphs (DAGs) for multi-step reasoning.
   - Implemented Checkpointers for persistent memory.
+  - *ADR 003: Checkpoint-based State Persistence.*
+  - *ADR 004: Multi-Agent Supervisor Orchestration & Swarm Reliability.*
 - [ ] **Week 3: The Knowledge Layer (RAG)**
+  - *ADR 005: Decoupled RAG via Model Context Protocol*
+  - *ADR 006: Orchestration Migration to Anthropic Claude 4.6 Sonnet*
 - [ ] **Week 4: The Developer Experience (SDK Design)**
 
 ### Phase 2: Governance, Security & Ops (Upcoming)
