@@ -9,5 +9,5 @@ We migrated the core orchestration engine (Supervisor and Specialist nodes) from
 
 ## Reasoning
 * **Native MCP Alignment:** Anthropic leads the development of the open-source Model Context Protocol. Using Claude ensures frictionless, zero-latency integration with our FastMCP enterprise data servers.
-* **Complex Tool Use:** Claude 3.5 Sonnet demonstrates significantly lower hallucination rates when dealing with "Null States" (e.g., when a RAG database returns empty results) and handles parallel tool schemas more deterministically.
+* **Complex Tool Use:** Claude 4.6 Sonnet demonstrates significantly lower hallucination rates when dealing with "Null States" (e.g., when a RAG database returns empty results) and handles parallel tool schemas more deterministically.
 * **Vendor Agnosticism:** By swapping the orchestration engine in exactly two lines of code, we validated that our LangGraph architecture is entirely model-agnostic, preventing enterprise vendor lock-in.
