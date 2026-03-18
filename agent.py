@@ -58,6 +58,7 @@ async def run_multi_agent_loop(user_query: str):
             # -----------------------------------------
             # NODE 1: THE SUPERVISOR
             # -----------------------------------------
+
             async def supervisor_node(state: State):
                 print("👔 SUPERVISOR: Thinking about who should handle this...")
                 system_prompt = SystemMessage(content="""You are a Banking Supervisor routing tasks. 
@@ -84,6 +85,8 @@ async def run_multi_agent_loop(user_query: str):
             # -----------------------------------------
             # NODE 2: MARKET ANALYST (Specialist)
             # -----------------------------------------
+            
+            # --- HELPER FUNCTION FOR ANTHROPIC ---
             # Claude sometimes returns a list of blocks instead of a simple string. 
             # This cleans it up so our terminal UI stays beautiful.
             def extract_anthropic_text(content):
@@ -97,6 +100,7 @@ async def run_multi_agent_loop(user_query: str):
             # -----------------------------------------
             # NODE 2: MARKET ANALYST (Specialist)
             # -----------------------------------------
+
             async def market_analyst_node(state: State):
                 print("📈 MARKET ANALYST: Analysing price data...")
                 price_tool =[format_tool(tools_by_name["get_stock_price"])]
@@ -123,6 +127,7 @@ async def run_multi_agent_loop(user_query: str):
             # -----------------------------------------
             # NODE 3: RISK ASSESSOR (Specialist)
             # -----------------------------------------
+
             async def risk_assessor_node(state: State):
                 print("🛡️ RISK ASSESSOR: Evaluating compliance and risk...")
                 
@@ -193,7 +198,7 @@ async def run_multi_agent_loop(user_query: str):
                 print("\n🏦 BANKING MULTI-AGENT SWARM ONLINE. Type 'quit' to exit.")
                 # Added recursion_limit: If the graph hits 15 steps, it throws an error and stops burning tokens!
                 config = {
-                    "configurable": {"thread_id": "session_013"}, 
+                    "configurable": {"thread_id": "session_014"}, 
                     "recursion_limit": 15,
                 }
 
