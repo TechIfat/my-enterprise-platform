@@ -328,6 +328,22 @@ wheels = [
 ]
 
 [[package]]
+name = "fastapi"
+version = "0.135.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "annotated-doc" },
+    { name = "pydantic" },
+    { name = "starlette" },
+    { name = "typing-extensions" },
+    { name = "typing-inspection" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e7/7b/f8e0211e9380f7195ba3f3d40c292594fd81ba8ec4629e3854c353aaca45/fastapi-0.135.1.tar.gz", hash = "sha256:d04115b508d936d254cea545b7312ecaa58a7b3a0f84952535b4c9afae7668cd", size = 394962, upload-time = "2026-03-01T18:18:29.369Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e4/72/42e900510195b23a56bde950d26a51f8b723846bfcaa0286e90287f0422b/fastapi-0.135.1-py3-none-any.whl", hash = "sha256:46e2fc5745924b7c840f71ddd277382af29ce1cdb7d5eab5bf697e3fb9999c9e", size = 116999, upload-time = "2026-03-01T18:18:30.831Z" },
+]
+
+[[package]]
 name = "filelock"
 version = "3.25.2"
 source = { registry = "https://pypi.org/simple" }
@@ -961,6 +977,7 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "anthropic" },
     { name = "chromadb" },
+    { name = "fastapi" },
     { name = "langchain-anthropic" },
     { name = "langchain-chroma" },
     { name = "langchain-core" },
@@ -971,6 +988,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "rich" },
     { name = "tiktoken" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -978,6 +996,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "anthropic", specifier = ">=0.85.0" },
     { name = "chromadb", specifier = ">=1.5.5" },
+    { name = "fastapi", specifier = ">=0.135.1" },
     { name = "langchain-anthropic", specifier = ">=1.4.0" },
     { name = "langchain-chroma", specifier = ">=1.1.0" },
     { name = "langchain-core", specifier = ">=1.2.17" },
@@ -988,6 +1007,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "rich", specifier = ">=14.3.3" },
     { name = "tiktoken", specifier = ">=0.12.0" },
+    { name = "uvicorn", specifier = ">=0.42.0" },
 ]
 
 [[package]]
@@ -1904,6 +1924,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/75/91/30c3c382140dcc7bc6e3a07eac7ca610a2b5b70eb9bc7066dc3e7f748d58/sqlite_vec-0.1.7-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8d27746d8e254a390bd15574aed899a0b9bb915b5321eb130a9c09722898cc03", size = 160076, upload-time = "2026-03-17T07:42:52.451Z" },
     { url = "https://files.pythonhosted.org/packages/59/56/6ff304d917ee79da769708dad0aed5fd34c72cbd0ae5e38bcc56cdc652a4/sqlite_vec-0.1.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux1_x86_64.whl", hash = "sha256:ad654283cb9c059852ce2d82018c757b06a705ada568f8b126022a131189818e", size = 163388, upload-time = "2026-03-17T07:42:53.516Z" },
     { url = "https://files.pythonhosted.org/packages/8b/27/fb1b6e3f9072854fe405f7aa99c46d4b465e84c9cec2ff7778edf29ecbbd/sqlite_vec-0.1.7-py3-none-win_amd64.whl", hash = "sha256:0c67877a87cb49426237b950237e82dbeb77778ab2ba89bea859f391fd169382", size = 292804, upload-time = "2026-03-17T07:42:54.325Z" },
+]
+
+[[package]]
+name = "starlette"
+version = "0.52.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c4/68/79977123bb7be889ad680d79a40f339082c1978b5cfcf62c2d8d196873ac/starlette-0.52.1.tar.gz", hash = "sha256:834edd1b0a23167694292e94f597773bc3f89f362be6effee198165a35d62933", size = 2653702, upload-time = "2026-01-18T13:34:11.062Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl", hash = "sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74", size = 74272, upload-time = "2026-01-18T13:34:09.188Z" },
 ]
 
 [[package]]

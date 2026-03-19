@@ -198,7 +198,7 @@ async def run_multi_agent_loop(user_query: str):
                 print("\n🏦 BANKING MULTI-AGENT SWARM ONLINE. Type 'quit' to exit.")
                 # Added recursion_limit: If the graph hits 15 steps, it throws an error and stops burning tokens!
                 config = {
-                    "configurable": {"thread_id": "session_014"}, 
+                    "configurable": {"thread_id": "session_015"}, 
                     "recursion_limit": 15,
                 }
 
@@ -223,5 +223,78 @@ async def run_multi_agent_loop(user_query: str):
                                 elif node_name == "Risk_Assessor":
                                     console.print(Panel(latest_msg.content, title="🛡️ RISK ASSESSOR", border_style="red"))
 
+# --- NEW: SINGLE-TURN API FUNCTION ---
+async def get_agent_response(user_query: str, thread_id: str) -> str:
+    """Executes a single pass through the LangGraph swarm and returns the final string."""
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            tools_list = await session.list_tools()
+            tools_by_name = {t.name: t for t in tools_list.tools}
+            
+            def format_tool(tool):
+                return {"name": tool.name, "description": tool.description, "parameters": tool.inputSchema}
+
+            # Use the working Claude model you found!
+            llm = ChatAnthropic(model_name="claude-sonnet-4-6", temperature=0) # Update this string to your working 4.6 string if needed
+
+            # (Re-paste your 3 Node definitions here briefly so the function has access to them)
+            # 1. SUPERVISOR
+            async def supervisor_node(state: State):
+                system_prompt = SystemMessage(content="""You are a Banking Supervisor routing tasks. 
+                Your team: Market_Analyst and Risk_Assessor.
+                RULES:
+                1. Review history. Worker agents submit reports as Human messages.
+                2. If price needed and no Analyst report, route to Market_Analyst.
+                3. If risk/compliance needed and no Assessor report, route to Risk_Assessor.
+                4. If information is ALREADY in chat history, output FINISH.
+                """)
+                router_llm = llm.with_structured_output(RouteDecision)
+                decision = await router_llm.ainvoke([system_prompt] + state["messages"])
+                return {"next": decision.next_agent}
+
+            # 2. MARKET ANALYST
+            async def market_analyst_node(state: State):
+                agent_llm = llm.bind_tools([format_tool(tools_by_name["get_stock_price"])])
+                response = await agent_llm.ainvoke(state["messages"])
+                if response.tool_calls:
+                    tool_msgs =[ToolMessage(content=(await session.call_tool(tc["name"], tc["args"])).content[0].text, tool_call_id=tc["id"]) for tc in response.tool_calls]
+                    final_response = await agent_llm.ainvoke(state["messages"] + [response] + tool_msgs)
+                    return {"messages":[HumanMessage(content=f"Market Analyst:\n{final_response.content}", name="Market_Analyst")]}
+                return {"messages":[HumanMessage(content=response.content, name="Market_Analyst")]}
+
+            # 3. RISK ASSESSOR
+            async def risk_assessor_node(state: State):
+                agent_llm = llm.bind_tools([format_tool(tools_by_name["get_company_risk_profile"]), format_tool(tools_by_name["search_internal_knowledge_base"])])
+                sys_msg = SystemMessage(content="""You are the Chief Risk Officer. ALWAYS use 'search_internal_knowledge_base'. FALLBACK: If 'No relevant internal policies found', state: 'No specific internal compliance policy exists. Standard market risk applies.'""")
+                response = await agent_llm.ainvoke([sys_msg] + state["messages"])
+                if response.tool_calls:
+                    tool_msgs = [ToolMessage(content=(await session.call_tool(tc["name"], tc["args"])).content[0].text, tool_call_id=tc["id"]) for tc in response.tool_calls]
+                    final_response = await agent_llm.ainvoke([sys_msg] + state["messages"] +[response] + tool_msgs)
+                    return {"messages":[HumanMessage(content=f"Risk Assessor:\n{final_response.content}", name="Risk_Assessor")]}
+                return {"messages":[HumanMessage(content=response.content, name="Risk_Assessor")]}
+
+            # Compile Graph
+            builder = StateGraph(State)
+            builder.add_node("Supervisor", supervisor_node)
+            builder.add_node("Market_Analyst", market_analyst_node)
+            builder.add_node("Risk_Assessor", risk_assessor_node)
+            builder.add_edge("Market_Analyst", "Supervisor")
+            builder.add_edge("Risk_Assessor", "Supervisor")
+            builder.add_conditional_edges("Supervisor", lambda state: state["next"], {"Market_Analyst": "Market_Analyst", "Risk_Assessor": "Risk_Assessor", "FINISH": END})
+            builder.add_edge(START, "Supervisor")
+
+            async with AsyncSqliteSaver.from_conn_string("agent_memory.db") as memory:
+                graph = builder.compile(checkpointer=memory)
+                config = {"configurable": {"thread_id": thread_id}, "recursion_limit": 15}
+                
+                # Execute graph silently
+                events = graph.astream({"messages":[HumanMessage(content=user_query)]}, config=config, stream_mode="values")
+                final_state = None
+                async for event in events:
+                    final_state = event
+                
+                # Return the very last message generated by the swarm
+                return final_state["messages"][-1].content
 if __name__ == "__main__":
     asyncio.run(run_multi_agent_loop(""))
