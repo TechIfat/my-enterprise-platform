@@ -1,6 +1,6 @@
 # Enterprise Agentic Platform (EAP)
 
-**Status:** Week 3 of 12 (In Active Development)
+**Status:** Week 5 of 12 (In Active Development)
 **Architect:** Ifat Noreen
 **Target:** Building a production-grade, multi-agent ecosystem from first principles.
 
@@ -22,10 +22,16 @@ This repository tracks a 12-week intensive build of an Enterprise Agentic Platfo
   - Implemented Checkpointers for persistent memory.
   - *ADR 003: Checkpoint-based State Persistence.*
   - *ADR 004: Multi-Agent Supervisor Orchestration & Swarm Reliability.*
-- [ ] **Week 3: The Knowledge Layer (RAG)**
+- [x] **Week 3: The Knowledge Layer (RAG) & API Gateway**
+  - Implemented Decoupled RAG by hosting ChromaDB behind the MCP server to protect against prompt injection.
+  - Exposed the LangGraph swarm via a FastAPI REST Gateway for frontend integration.
+  - Migrated the core reasoning engine to Anthropic Claude 4.6 Sonnet for superior parallel tool execution.
   - *ADR 005: Decoupled RAG via Model Context Protocol*
   - *ADR 006: Orchestration Migration to Anthropic Claude 4.6 Sonnet*
-- [ ] **Week 4: The Developer Experience (SDK Design)**
+- [x] **Week 4: The Developer Experience (SDK Design)**
+  - Restructured repository to standard Python `src/` layout for enterprise packaging.
+  - Built a unified Developer Experience (DX) using a global `eap` Typer CLI.
+  - *ADR 007: Unified Developer Experience via Typer CLI*
 
 ### Phase 2: Governance, Security & Ops (Upcoming)
 - [ ] **Week 5: Observability & Tracing (OpenTelemetry)**
@@ -43,13 +49,48 @@ This repository tracks a 12-week intensive build of an Enterprise Agentic Platfo
 
 ## 🚀 How to Run (Current State)
 
-This project uses `uv` for lightning-fast dependency management. The Agent Runtime automatically spins up the MCP Nervous System as a subprocess.
+This project uses `uv` for lightning-fast dependency management and is packaged as a unified CLI tool. The Agent Runtime automatically spins up the MCP Nervous System as a subprocess.
 
-**1. Configure Environment**
-Create a `.env` file in the root directory and add your key:
-`OPENAI_API_KEY=sk-your-key-here`
-
-**2. Run the Platform**
+**1. Clone and Sync Dependencies**
 ```bash
-uv run agent.py
+uv sync
 ```
+
+**2. Configure Environment**
+Create a .env file in the root directory. You will need both API keys (OpenAI is used for Vector Embeddings, Anthropic is used for the Orchestration Brain):
+
+```Env
+OPENAI_API_KEY=sk-proj-your-key-here
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+```
+
+**3. Run the Platform via CLI**
+You can control the entire ecosystem using the eap command:
+
+```Bash
+# View all available commands
+uv run eap --help
+
+# Seed the Vector Database with enterprise policies
+uv run eap seed
+
+# Start the interactive Multi-Agent Swarm terminal
+uv run eap chat
+
+# Launch the production FastAPI REST Gateway (Swagger UI at http://localhost:8000/docs)
+uv run eap serve
+```
+
+## 📜 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. 
+*(Note: This is an open-source portfolio project. Enterprise deployment requires independent security and compliance auditing).*
+
+## 📬 Contact & Consulting
+
+**Ifat Noreen**
+*Principal Agentic AI Architect | DevSecAI Engineer*
+
+* **LinkedIn:**[linkedin.com/in/ifat-noreen](https://www.linkedin.com/in/ifat-noreen)
+* **GitHub:** [@TechIfat](https://github.com/TechIfat)
+* **Inquiries:** Open to Staff/Principal engineering roles and enterprise AI consultancy.
