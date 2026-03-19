@@ -22,7 +22,12 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 load_dotenv()
 
-server_params = StdioServerParameters(command="uv", args=["run", "finance_server.py"], env=None)
+# Updated to run the server as a module
+server_params = StdioServerParameters(
+    command="python", 
+    args=["-m", "eap.finance_server"], 
+    env=None
+)
 
 # 1. The State now tracks messages AND the "next" agent to route to
 class State(TypedDict):

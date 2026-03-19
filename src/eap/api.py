@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from agent import get_agent_response
+from eap.agent import get_agent_response
 
 # 1. Initialize the Enterprise API
 app = FastAPI(

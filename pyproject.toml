@@ -25,4 +25,6 @@ dependencies = [
     "uvicorn>=0.42.0",
 ]
 [project.scripts]
-eap = "cli:app"
+eap = "eap.cli:app"
+[tool.uv]
+package = true
