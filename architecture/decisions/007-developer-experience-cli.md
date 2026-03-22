@@ -1,7 +1,7 @@
 # ADR 007: Unified Developer Experience via Typer CLI
 
 ## Context
-As the Enterprise Agentic Platform (EAP) scales, it now includes multiple microservices (FastAPI Gateway, MCP Server), state management systems (SQLite Checkpointers), and vector databases (ChromaDB). Requiring developers to memorize and execute disjointed Python scripts increases onboarding friction and deployment errors.
+As the Enterprise Agentic Platform (EAP) scales, it now includes multiple microservices (FastAPI Gateway, MCP Server), state management systems (SQLite Checkpointers), and vector databases (ChromaDB). Requiring developers to memorise and execute disjointed Python scripts increases onboarding friction and deployment errors.
 
 ## Decision
 We implemented a unified Command Line Interface (CLI) using `Typer` to encapsulate all platform operations (`seed`, `chat`, `serve`) under a single `eap` global command.
