@@ -85,8 +85,8 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
         RULES:
         1. Review history. Worker agents submit reports as Human messages.
         2. If price needed and no Analyst report, route to Market_Analyst.
-        3. If risk/compliance needed and no Assessor report, route to Risk_Assessor.
-        4. If information is ALREADY in chat history, output FINISH.
+        3. If risk/compliance needed and no Risk_Assessor report, route to Risk_Assessor. The Market_Analyst CANNOT do risk checks.
+        4. If ALL requested information is ALREADY in the chat history from the correct specialists, output FINISH.
         """)
         router_llm = llm.with_structured_output(RouteDecision)
         decision = await router_llm.ainvoke([system_prompt] + state["messages"])
@@ -96,15 +96,19 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
     # NODE 2: THE MARKET ANALYST (Stock Price Research)
     # -----------------------------------------
     async def market_analyst_node(state: State):
+        # NEW: Force the analyst to only do math/prices
+        sys_msg = SystemMessage(content="""You are a Market Analyst. Your ONLY job is to retrieve stock prices and calculate share quantities. 
+        DO NOT provide risk assessments, compliance checks, or investment advice. Leave that to the Risk Assessor.""")
+        
         agent_llm = llm.bind_tools([format_tool(tools_by_name["get_stock_price"])])
-        response = await agent_llm.ainvoke(state["messages"])
+        response = await agent_llm.ainvoke([sys_msg] + state["messages"]) # Inject sys_msg here
         
         if response.tool_calls:
             tool_msgs =[]
             for tc in response.tool_calls:
                 result = await session.call_tool(tc["name"], tc["args"])
                 tool_msgs.append(ToolMessage(content=result.content[0].text, tool_call_id=tc["id"]))
-            final_response = await agent_llm.ainvoke(state["messages"] + [response] + tool_msgs)
+            final_response = await agent_llm.ainvoke([sys_msg] + state["messages"] + [response] + tool_msgs)
             clean_text = extract_anthropic_text(final_response.content)
             return {"messages":[HumanMessage(content=f"Market Analyst Report:\n{clean_text}", name="Market_Analyst")]}
             

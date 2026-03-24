@@ -39,5 +39,12 @@ def serve(
     typer.secho(f"Starting API Gateway on port {port} in {env.upper()} mode...", fg=typer.colors.MAGENTA, bold=True)
     uvicorn.run("eap.api:app", host="0.0.0.0", port=port, reload=(env == "local"))
 
+@app.command()
+def test(env: str = typer.Option("local", help="Environment to run evals in")):
+    """🧪 Run the automated Eval-Driven Development (EDD) test suite."""
+    load_environment(env)
+    typer.secho("Initializing CI/CD Evaluation Pipeline...", fg=typer.colors.CYAN, bold=True)
+    subprocess.run(["python", "-m", "eap.evals.run_evals"])
+    
 if __name__ == "__main__":
     app()
