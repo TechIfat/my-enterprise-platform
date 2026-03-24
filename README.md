@@ -61,20 +61,28 @@ This repository tracks a 12-week intensive build of an Enterprise Agentic Platfo
 This project uses `uv` for lightning-fast dependency management and is packaged as a unified CLI tool. The Agent Runtime automatically spins up the MCP Nervous System as a subprocess.
 
 **1. Clone and Sync Dependencies**
+
 ```bash
 uv sync
 ```
 
 **2. Configure Environment**
-Create a .env file in the root directory. You will need both API keys (OpenAI is used for Vector Embeddings, Anthropic is used for the Orchestration Brain):
+Create a .env.local file in the root directory (the CLI defaults to the local environment). You will need API keys for embeddings (OpenAI), orchestration (Anthropic), and observability (LangSmith):
 
 ```Env
-OPENAI_API_KEY=sk-proj-your-key-here
-ANTHROPIC_API_KEY=sk-ant-your-key-here
+# --- AI PROVIDERS ---
+OPENAI_API_KEY="sk-proj-your-key-here"
+ANTHROPIC_API_KEY="sk-ant-your-key-here"
+
+# --- OBSERVABILITY (LANGSMITH EU REGION) ---
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_ENDPOINT="https://eu.api.smith.langchain.com"
+LANGCHAIN_API_KEY="lsv2_pt_your_key_here"
+LANGCHAIN_PROJECT="EAP-Local-Dev"
 ```
 
 **3. Run the Platform via CLI**
-You can control the entire ecosystem using the eap command:
+You can control the entire ecosystem using the eap command. (Note: You can append --env prod to any command to dynamically inject production environment variables).
 
 ```Bash
 # View all available commands
@@ -85,6 +93,9 @@ uv run eap seed
 
 # Start the interactive Multi-Agent Swarm terminal
 uv run eap chat
+
+# Run the automated Eval-Driven Development (EDD) test suite
+uv run eap test
 
 # Launch the production FastAPI REST Gateway (Swagger UI at http://localhost:8000/docs)
 uv run eap serve
