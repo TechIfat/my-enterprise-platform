@@ -33,10 +33,19 @@ This repository tracks a 12-week intensive build of an Enterprise Agentic Platfo
   - Built a unified Developer Experience (DX) using a global `eap` Typer CLI.
   - *ADR 007: Unified Developer Experience via Typer CLI*
 
-### Phase 2: Governance, Security & Ops (Upcoming)
-- [ ] **Week 5: Observability & Tracing (OpenTelemetry)**
-- [ ] **Week 6: DevSecAI Guardrails (NVIDIA NeMo)**
-- [ ] **Week 7: Eval-Driven Development**
+### Phase 2: Governance, Security & Ops
+- [x] **Week 5: Observability & Tracing (LangSmith)**
+  - Integrated zero-code distributed tracing to track API latency, token costs, and multi-agent routing paths.
+  - Enforced UK GDPR data residency by strictly routing telemetry to EU-West endpoints.
+  - *ADR 008: Distributed Tracing & Observability via LangSmith (EU Data Residency)*
+- [x] **Week 6: DevSecAI Guardrails (Shift-Left Security)**
+  - Architected a decoupled Security Gateway node at the front of the LangGraph DAG.
+  - Prevented prompt injections and roleplay jailbreaks from reaching the expensive LLM reasoning engine.
+  - *ADR 009: Decoupled DevSecAI Gateway (Shift-Left Security)*
+- [x] **Week 7: Eval-Driven Development (CI/CD)**
+  - Built an automated integration testing pipeline (`run_evals.py`) to verify deterministic semantic boundaries.
+  - Pipeline strictly blocks deployments (`exit code 1`) if agents suffer role-confusion or fail mandatory compliance triggers.
+  - *ADR 010: Eval-Driven Development (EDD) and CI/CD Automation*
 - [ ] **Week 8: Edge-Cloud Routing**
 
 ### Phase 3: Strategy & Advanced Patterns (Upcoming)
