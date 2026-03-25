@@ -37,6 +37,12 @@ class RouteDecision(BaseModel):
         description="The next agent to route to, or FINISH if the user's request is fully answered."
     )
 
+# --- NEW: Triage Schema ---
+class TriageDecision(BaseModel):
+    route: Literal["Fast_Response", "Supervisor"] = Field(
+        description="Route to Fast_Response for greetings/simple chat. Route to Supervisor for financial, stock, or risk queries."
+    )
+
 def format_tool(tool):
     return {"name": tool.name, "description": tool.description, "parameters": tool.inputSchema}
 
@@ -53,7 +59,10 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
     tools_list = await session.list_tools()
     tools_by_name = {t.name: t for t in tools_list.tools}
     
-    # Using your custom working model string!
+    # NEW: The Fast/Cheap LLM (The Receptionist)
+    cheap_llm = ChatAnthropic(model_name="claude-haiku-4-5-20251001", temperature=0)
+    
+    # Your custom working model string! (The Experts)
     llm = ChatAnthropic(model_name="claude-sonnet-4-6", temperature=0) 
 
     # -----------------------------------------
@@ -74,8 +83,40 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
             }
         
         print("✅ SECURITY CLEARANCE: Safe to proceed.")
-        return {"next": "Supervisor"}
+        return {"next": "Triage"}
 
+    # -----------------------------------------
+    # NODE 0.5: TRIAGE (The Receptionist)
+    # -----------------------------------------
+    async def triage_node(state: State):
+        print("🔀 TRIAGE: Evaluating prompt complexity...")
+        sys_msg = SystemMessage(content="""You are a routing assistant. 
+        If the user is just saying hello, thanking you, or asking a generic non-financial question, route to Fast_Response. 
+        If they are asking about stocks, investments, risk, or compliance, route to Supervisor.""")
+        
+        # Notice we use cheap_llm here!
+        router = cheap_llm.with_structured_output(TriageDecision)
+        decision = await router.ainvoke([sys_msg, state["messages"][-1]])
+        
+        print(f"🔀 TRIAGE DECISION: Routing to -> {decision.route}")
+        return {"next": decision.route}
+
+    # -----------------------------------------
+    # NODE 0.6: FAST RESPONSE (Cheap Compute)
+    # -----------------------------------------
+    async def fast_response_node(state: State):
+        print("⚡ FAST RESPONSE: Handling simple query with low-cost model...")
+        sys_msg = SystemMessage(content="You are a helpful banking assistant. Keep your answer brief and polite.")
+        
+        # Notice we use cheap_llm here too!
+        response = await cheap_llm.ainvoke([sys_msg] + state["messages"])
+        
+        clean_text = extract_anthropic_text(response.content)
+        return {
+            "messages": [AIMessage(content=clean_text, name="Fast_Response")],
+            "next": "FINISH"
+        }
+    
     # -----------------------------------------
     # NODE 1: THE SUPERVISOR (Routing Decision Maker)
     # -----------------------------------------
@@ -144,37 +185,40 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
         clean_text = extract_anthropic_text(response.content)
         return {"messages": [HumanMessage(content=clean_text, name="Risk_Assessor")]}
 
+    # -----------------------------------------
+    # BUILD THE MULTI-AGENT GRAPH
+    # -----------------------------------------
     builder = StateGraph(State)
     
-    # Add all 4 nodes
+    # Add all 6 nodes
     builder.add_node("Security_Officer", security_node)
+    builder.add_node("Triage", triage_node)               # <--- NEW
+    builder.add_node("Fast_Response", fast_response_node) # <--- NEW
     builder.add_node("Supervisor", supervisor_node)
     builder.add_node("Market_Analyst", market_analyst_node)
     builder.add_node("Risk_Assessor", risk_assessor_node)
 
-    # Edge logic
+    # 1. Security routes to Triage (if safe)
+    builder.add_conditional_edges("Security_Officer", lambda state: state["next"], {"Triage": "Triage", "FINISH": END})
+    
+    # 2. Triage routes to either Fast_Response or the heavy Supervisor
+    builder.add_conditional_edges("Triage", lambda state: state["next"], {"Fast_Response": "Fast_Response", "Supervisor": "Supervisor"})
+    
+    # 3. Fast Response is the end of the line for simple queries
+    builder.add_conditional_edges("Fast_Response", lambda state: state["next"], {"FINISH": END})
+
+    # 4. Worker nodes report back to Supervisor
     builder.add_edge("Market_Analyst", "Supervisor")
     builder.add_edge("Risk_Assessor", "Supervisor")
 
-    # The Security Routing logic
+    # 5. Supervisor makes the final calls
     builder.add_conditional_edges(
-        "Security_Officer",
-        lambda state: state["next"],
-        {"Supervisor": "Supervisor", "FINISH": END}
-    )
-
-    # The Supervisor Routing logic
-    builder.add_conditional_edges(
-        "Supervisor",
+        "Supervisor", 
         lambda state: state["next"], 
-        {
-            "Market_Analyst": "Market_Analyst",
-            "Risk_Assessor": "Risk_Assessor",
-            "FINISH": END
-        }
+        {"Market_Analyst": "Market_Analyst", "Risk_Assessor": "Risk_Assessor", "FINISH": END}
     )
 
-    # START goes to Security FIRST, not the Supervisor!
+    # START goes to Security FIRST
     builder.add_edge(START, "Security_Officer")
 
     return builder.compile(checkpointer=memory)
@@ -208,6 +252,8 @@ async def run_multi_agent_loop(user_query: str):
                                     console.print(Panel(latest_msg.content, title="📈 MARKET ANALYST", border_style="green"))
                                 elif node_name == "Risk_Assessor":
                                     console.print(Panel(latest_msg.content, title="🛡️ RISK ASSESSOR", border_style="red"))
+                                elif node_name == "Fast_Response":
+                                    console.print(Panel(latest_msg.content, title="⚡ RECEPTIONIST", border_style="cyan"))
 
 # --- API ENTRYPOINT ---
 async def get_agent_response(user_query: str, thread_id: str) -> str:
