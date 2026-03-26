@@ -1,3 +1,4 @@
+import sqlite3
 import os
 from dotenv import load_dotenv
 # Load environment variables for OpenAI Embeddings
@@ -66,6 +67,30 @@ def search_internal_knowledge_base(query: str) -> str:
         return f"INTERNAL POLICY FOUND: {best_match.page_content} (Source: {best_match.metadata['source']})"
     
     return "No relevant internal policies found for this query."
+
+@mcp.tool()
+def check_account_balance(client_id: str) -> str:
+    """
+    Queries the legacy SQL mainframe to check a client's available cash balance and tier.
+    Requires the exact client_id (e.g., C-12345).
+    """
+    print(f"--- Log: Querying Mainframe SQL for Client {client_id} ---")
+    try:
+        conn = sqlite3.connect("mainframe.db")
+        cursor = conn.cursor()
+        
+        # DEVSECOPS PATTERN: We use parameterised queries (?,) to absolutely prevent SQL Injection attacks.
+        cursor.execute("SELECT name, balance, tier FROM accounts WHERE client_id=?", (client_id,))
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return f"CLIENT FOUND: {result[0]} | TIER: {result[2]} | AVAILABLE CASH: ${result[1]:.2f}"
+        return f"ERROR: Client ID {client_id} not found in mainframe."
+    
+    except Exception as e:
+        return f"MAINFRAME ERROR: {str(e)}"
+
 if __name__ == "__main__":
     # Run the MCP server
     mcp.run()

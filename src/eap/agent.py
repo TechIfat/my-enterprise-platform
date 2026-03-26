@@ -33,7 +33,7 @@ class State(TypedDict):
     next: str
 
 class RouteDecision(BaseModel):
-    next_agent: Literal["Market_Analyst", "Risk_Assessor", "FINISH"] = Field(
+    next_agent: Literal["Market_Analyst", "Risk_Assessor", "Trade_Executor", "FINISH"] = Field(
         description="The next agent to route to, or FINISH if the user's request is fully answered."
     )
 
@@ -122,12 +122,12 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
     # -----------------------------------------
     async def supervisor_node(state: State):
         system_prompt = SystemMessage(content="""You are a Banking Supervisor routing tasks. 
-        Your team: Market_Analyst and Risk_Assessor.
+        Your team: Market_Analyst, Risk_Assessor, and Trade_Executor.
         RULES:
-        1. Review history. Worker agents submit reports as Human messages.
-        2. If price needed and no Analyst report, route to Market_Analyst.
-        3. If risk/compliance needed and no Risk_Assessor report, route to Risk_Assessor. The Market_Analyst CANNOT do risk checks.
-        4. If ALL requested information is ALREADY in the chat history from the correct specialists, output FINISH.
+        1. If price/balance needed, route to Market_Analyst.
+        2. If risk/compliance needed, route to Risk_Assessor.
+        3. If the user explicitly asks to EXECUTE or BUY, and the Risk Assessor has cleared it (or a human has explicitly approved it), route to Trade_Executor.
+        4. If information is ALREADY in chat history and no execution is requested, output FINISH.
         """)
         router_llm = llm.with_structured_output(RouteDecision)
         decision = await router_llm.ainvoke([system_prompt] + state["messages"])
@@ -137,18 +137,30 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
     # NODE 2: THE MARKET ANALYST (Stock Price Research)
     # -----------------------------------------
     async def market_analyst_node(state: State):
-        # NEW: Force the analyst to only do math/prices
-        sys_msg = SystemMessage(content="""You are a Market Analyst. Your ONLY job is to retrieve stock prices and calculate share quantities. 
-        DO NOT provide risk assessments, compliance checks, or investment advice. Leave that to the Risk Assessor.""")
+        print("📈 MARKET ANALYST: Analysing price data & client funds...")
         
-        agent_llm = llm.bind_tools([format_tool(tools_by_name["get_stock_price"])])
-        response = await agent_llm.ainvoke([sys_msg] + state["messages"]) # Inject sys_msg here
+        # NEW: Give the Analyst access to both the price tool and the SQL mainframe tool
+        analyst_tools = [
+            format_tool(tools_by_name["get_stock_price"]),
+            format_tool(tools_by_name["check_account_balance"])
+        ]
+        agent_llm = llm.bind_tools(analyst_tools)
+        
+        # NEW: Update the strict persona
+        sys_msg = SystemMessage(content="""You are a Market Analyst. Your ONLY jobs are to retrieve stock prices, check client account balances via the mainframe, and calculate share quantities. 
+        RULES:
+        1. If a client_id is provided, ALWAYS check their balance first.
+        2. If they do not have enough cash for the requested trade, flag it immediately and state the shortfall.
+        3. DO NOT provide risk assessments. Leave that to the Risk Assessor.""")
+        
+        response = await agent_llm.ainvoke([sys_msg] + state["messages"])
         
         if response.tool_calls:
-            tool_msgs =[]
+            tool_msgs = []
             for tc in response.tool_calls:
                 result = await session.call_tool(tc["name"], tc["args"])
                 tool_msgs.append(ToolMessage(content=result.content[0].text, tool_call_id=tc["id"]))
+            
             final_response = await agent_llm.ainvoke([sys_msg] + state["messages"] + [response] + tool_msgs)
             clean_text = extract_anthropic_text(final_response.content)
             return {"messages":[HumanMessage(content=f"Market Analyst Report:\n{clean_text}", name="Market_Analyst")]}
@@ -186,6 +198,21 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
         return {"messages": [HumanMessage(content=clean_text, name="Risk_Assessor")]}
 
     # -----------------------------------------
+    # NODE 4: TRADE EXECUTOR (The Danger Zone)
+    # -----------------------------------------
+    async def trade_execution_node(state: State):
+        print("💸 TRADE EXECUTOR: Executing financial transaction...")
+        
+        # In a real app, this would call a Brokerage API (like Alpaca or Interactive Brokers)
+        # and run an SQL UPDATE command to deduct the balance.
+        execution_msg = "SUCCESS: Trade executed and recorded in the legacy mainframe."
+        
+        return {
+            "messages":[HumanMessage(content=f"Trade Executor Report:\n{execution_msg}", name="Trade_Executor")],
+            "next": "FINISH"  # We route to FINISH immediately so it doesn't bother the Supervisor
+        }
+    
+    # -----------------------------------------
     # BUILD THE MULTI-AGENT GRAPH
     # -----------------------------------------
     builder = StateGraph(State)
@@ -197,6 +224,7 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
     builder.add_node("Supervisor", supervisor_node)
     builder.add_node("Market_Analyst", market_analyst_node)
     builder.add_node("Risk_Assessor", risk_assessor_node)
+    builder.add_node("Trade_Executor", trade_execution_node) # <--- NEW
 
     # 1. Security routes to Triage (if safe)
     builder.add_conditional_edges("Security_Officer", lambda state: state["next"], {"Triage": "Triage", "FINISH": END})
@@ -210,18 +238,21 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
     # 4. Worker nodes report back to Supervisor
     builder.add_edge("Market_Analyst", "Supervisor")
     builder.add_edge("Risk_Assessor", "Supervisor")
+    builder.add_edge("Trade_Executor", END) # <--- NEW
 
     # 5. Supervisor makes the final calls
     builder.add_conditional_edges(
         "Supervisor", 
         lambda state: state["next"], 
-        {"Market_Analyst": "Market_Analyst", "Risk_Assessor": "Risk_Assessor", "FINISH": END}
+        {"Market_Analyst": "Market_Analyst", "Risk_Assessor": "Risk_Assessor","Trade_Executor": "Trade_Executor", "FINISH": END}
     )
 
     # START goes to Security FIRST
     builder.add_edge(START, "Security_Officer")
 
-    return builder.compile(checkpointer=memory)
+    # NEW: Compile with a breakpoint! 
+    # The graph will freeze BEFORE it is allowed to enter the Trade_Executor node.
+    return builder.compile(checkpointer=memory, interrupt_before=["Trade_Executor"])
 
 # --- CLI ENTRYPOINT ---
 async def run_multi_agent_loop(user_query: str):
@@ -252,9 +283,36 @@ async def run_multi_agent_loop(user_query: str):
                                     console.print(Panel(latest_msg.content, title="📈 MARKET ANALYST", border_style="green"))
                                 elif node_name == "Risk_Assessor":
                                     console.print(Panel(latest_msg.content, title="🛡️ RISK ASSESSOR", border_style="red"))
+                                elif node_name == "Trade_Executor":
+                                    console.print(Panel(latest_msg.content, title="💸 TRADE EXECUTOR", border_style="yellow"))
                                 elif node_name == "Fast_Response":
                                     console.print(Panel(latest_msg.content, title="⚡ RECEPTIONIST", border_style="cyan"))
 
+                    # --- NEW: HUMAN-IN-THE-LOOP CHECK ---
+                    # Check if the graph paused because it hit our breakpoint
+                    state = await graph.aget_state(config)  # <--- Note the 'await' and 'aget_state'
+                    if state.next and "Trade_Executor" in state.next:
+                        console.print("\n[bold red]⚠️  WARNING: AI IS ATTEMPTING TO EXECUTE A TRADE.[/bold red]")
+                        approval = input("Type 'APPROVE' to authorize, or anything else to cancel: ")
+                        
+                        if approval.strip() == 'APPROVE':
+                            console.print("[bold green]✅ HUMAN OVERRIDE: TRADE APPROVED. Resuming AI execution...[/bold green]")
+                            # Resume the graph with NO new input, just let it continue
+                            events = graph.astream(None, config=config)
+                            async for event in events:
+                                for node_name, state_update in event.items():
+                                    if "messages" in state_update and node_name == "Trade_Executor":
+                                        latest_msg = state_update["messages"][-1]
+                                        console.print(Panel(latest_msg.content, title="💸 TRADE EXECUTOR", border_style="yellow"))
+                        else:
+                            console.print("[bold red]❌ HUMAN OVERRIDE: TRADE REJECTED.[/bold red]")
+                            # Inject a message telling the AI the human denied it
+                            events = graph.astream(
+                                {"messages":[HumanMessage(content="The human supervisor REJECTED this trade. Do not execute. Tell the user it was denied.")]}, 
+                                config=config
+                            )
+                            async for event in events:
+                                pass # Let the AI formulate the rejection response
 # --- API ENTRYPOINT ---
 async def get_agent_response(user_query: str, thread_id: str) -> str:
     async with stdio_client(server_params) as (read, write):

@@ -46,11 +46,18 @@ This repository tracks a 12-week intensive build of an Enterprise Agentic Platfo
   - Built an automated integration testing pipeline (`run_evals.py`) to verify deterministic semantic boundaries.
   - Pipeline strictly blocks deployments (`exit code 1`) if agents suffer role-confusion or fail mandatory compliance triggers.
   - *ADR 010: Eval-Driven Development (EDD) and CI/CD Automation*
-- [ ] **Week 8: Edge-Cloud Routing**
+- [x] **Week 8: Edge-Cloud Routing (Semantic Triage)**
+  - Deployed Claude 3 Haiku as an ultra-fast, low-cost receptionist to filter simple queries, saving expensive Claude 4.6 Sonnet tokens for heavy financial reasoning.
+  - *ADR 011: Cost Optimisation via Semantic Triage Routing*
 
-### Phase 3: Strategy & Advanced Patterns (Upcoming)
-- [ ] **Week 9: Legacy Integration Patterns**
-- [ ] **Week 10: Human-in-the-Loop (HITL) Workflows**
+### Phase 3: Strategy & Advanced Patterns
+- [x] **Week 9: Legacy Integration Patterns**
+  - Simulated a legacy banking mainframe using SQLite.
+  - Exposed relational database queries to the LangGraph swarm via MCP for deterministic balance checking.
+- [x] **Week 10: Human-in-the-Loop (HITL) Workflows**
+  - Architected execution breakpoints using LangGraph.
+  - Required manual `APPROVE` terminal overrides before allowing the `Trade_Executor` to push state changes.
+  - *ADR 012: Secure Transaction Execution via Legacy Integration and HITL Breakpoints*
 - [ ] **Week 11: Multi-Agent Consensus & Swarms**
 - [ ] **Week 12: The Architect's Capstone (Reference Architecture)**
 
