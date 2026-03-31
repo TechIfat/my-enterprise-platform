@@ -3,7 +3,7 @@
 ## Context
 As the Enterprise Agentic Platform (EAP) moves beyond data retrieval into executing financial transactions, two critical risks emerge:
 1. **Data Accuracy:** AI agents cannot rely on RAG (Vector Databases) for exact numeric state, such as real-time fiat cash balances.
-2. **Fiduciary Risk:** Autonomous AI systems cannot be trusted with unsupervised write-access to financial ledgers. Hallucinations leading to unauthorized trades violate banking compliance.
+2. **Fiduciary Risk:** Autonomous AI systems cannot be trusted with unsupervised write-access to financial ledgers. Hallucinations leading to unauthorised trades violate banking compliance.
 
 ## Decision
 We implemented a dual-layered secure execution architecture:

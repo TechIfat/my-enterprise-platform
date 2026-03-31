@@ -33,7 +33,7 @@ class State(TypedDict):
     next: str
 
 class RouteDecision(BaseModel):
-    next_agent: Literal["Market_Analyst", "Risk_Assessor", "Trade_Executor", "FINISH"] = Field(
+    next_agent: Literal["Market_Analyst", "Risk_Assessor", "Audit_Committee", "Trade_Executor", "FINISH"] = Field(
         description="The next agent to route to, or FINISH if the user's request is fully answered."
     )
 
@@ -121,13 +121,15 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
     # NODE 1: THE SUPERVISOR (Routing Decision Maker)
     # -----------------------------------------
     async def supervisor_node(state: State):
+        
         system_prompt = SystemMessage(content="""You are a Banking Supervisor routing tasks. 
-        Your team: Market_Analyst, Risk_Assessor, and Trade_Executor.
+        Your team: Market_Analyst, Risk_Assessor, Audit_Committee, and Trade_Executor.
         RULES:
         1. If price/balance needed, route to Market_Analyst.
         2. If risk/compliance needed, route to Risk_Assessor.
-        3. If the user explicitly asks to EXECUTE or BUY, and the Risk Assessor has cleared it (or a human has explicitly approved it), route to Trade_Executor.
-        4. If information is ALREADY in chat history and no execution is requested, output FINISH.
+        3. MANDATORY CONSENSUS: Once the Risk_Assessor provides a report, you MUST route to the Audit_Committee to verify their findings.
+        4. If the user explicitly asks to EXECUTE or BUY, and the Audit_Committee has cleared it (or a human has explicitly approved it), route to Trade_Executor.
+        5. If information is ALREADY in chat history and no execution is requested, output FINISH.
         """)
         router_llm = llm.with_structured_output(RouteDecision)
         decision = await router_llm.ainvoke([system_prompt] + state["messages"])
@@ -198,6 +200,23 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
         return {"messages": [HumanMessage(content=clean_text, name="Risk_Assessor")]}
 
     # -----------------------------------------
+    # NODE 3.5: AUDIT COMMITTEE (Consensus/Maker-Checker)
+    # -----------------------------------------
+    async def audit_committee_node(state: State):
+        print("⚖️ AUDIT COMMITTEE: Peer-reviewing the Risk Assessor's findings...")
+        
+        sys_msg = SystemMessage(content="""You are the Internal Audit Committee. 
+        Your job is to read the Risk Assessor's report in the chat history.
+        Validate their logic. Did they check the balance? Did they check the policies?
+        Output a final CONSENSUS VOTE: [APPROVED] or [REJECTED], followed by a 2-sentence justification.""")
+        
+        # We use the smart LLM for auditing
+        response = await llm.ainvoke([sys_msg] + state["messages"])
+        
+        clean_text = extract_anthropic_text(response.content)
+        return {"messages": [HumanMessage(content=f"Audit Committee Consensus:\n{clean_text}", name="Audit_Committee")]}
+    
+    # -----------------------------------------
     # NODE 4: TRADE EXECUTOR (The Danger Zone)
     # -----------------------------------------
     async def trade_execution_node(state: State):
@@ -225,6 +244,7 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
     builder.add_node("Market_Analyst", market_analyst_node)
     builder.add_node("Risk_Assessor", risk_assessor_node)
     builder.add_node("Trade_Executor", trade_execution_node) # <--- NEW
+    builder.add_node("Audit_Committee", audit_committee_node) # <--- NEW
 
     # 1. Security routes to Triage (if safe)
     builder.add_conditional_edges("Security_Officer", lambda state: state["next"], {"Triage": "Triage", "FINISH": END})
@@ -238,13 +258,14 @@ async def build_agent_graph(session: ClientSession, memory: AsyncSqliteSaver):
     # 4. Worker nodes report back to Supervisor
     builder.add_edge("Market_Analyst", "Supervisor")
     builder.add_edge("Risk_Assessor", "Supervisor")
+    builder.add_edge("Audit_Committee", "Supervisor") # <--- NEW
     builder.add_edge("Trade_Executor", END) # <--- NEW
 
     # 5. Supervisor makes the final calls
     builder.add_conditional_edges(
         "Supervisor", 
         lambda state: state["next"], 
-        {"Market_Analyst": "Market_Analyst", "Risk_Assessor": "Risk_Assessor","Trade_Executor": "Trade_Executor", "FINISH": END}
+        {"Market_Analyst": "Market_Analyst", "Risk_Assessor": "Risk_Assessor", "Audit_Committee": "Audit_Committee", "Trade_Executor": "Trade_Executor", "FINISH": END}
     )
 
     # START goes to Security FIRST
@@ -283,6 +304,8 @@ async def run_multi_agent_loop(user_query: str):
                                     console.print(Panel(latest_msg.content, title="📈 MARKET ANALYST", border_style="green"))
                                 elif node_name == "Risk_Assessor":
                                     console.print(Panel(latest_msg.content, title="🛡️ RISK ASSESSOR", border_style="red"))
+                                elif node_name == "Audit_Committee":
+                                    console.print(Panel(latest_msg.content, title="⚖️ AUDIT COMMITTEE", border_style="magenta"))
                                 elif node_name == "Trade_Executor":
                                     console.print(Panel(latest_msg.content, title="💸 TRADE EXECUTOR", border_style="yellow"))
                                 elif node_name == "Fast_Response":

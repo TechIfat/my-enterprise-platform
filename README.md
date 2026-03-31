@@ -58,8 +58,10 @@ This repository tracks a 12-week intensive build of an Enterprise Agentic Platfo
   - Architected execution breakpoints using LangGraph.
   - Required manual `APPROVE` terminal overrides before allowing the `Trade_Executor` to push state changes.
   - *ADR 012: Secure Transaction Execution via Legacy Integration and HITL Breakpoints*
-- [ ] **Week 11: Multi-Agent Consensus & Swarms**
-- [ ] **Week 12: The Architect's Capstone (Reference Architecture)**
+- [x] **Week 11: Multi-Agent Consensus & Swarms**
+  - Implemented the "Maker-Checker" pattern via an `Audit_Committee` node to verify Risk Assessor logic.
+- [x] **Week 12: The Architect's Capstone (Reference Architecture)**
+  - Finalised the comprehensive `REFERENCE_ARCHITECTURE.md` blueprint for enterprise adoption.
 
 ---
 
