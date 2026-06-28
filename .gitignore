@@ -16,3 +16,7 @@ wheels/
 *.db-wal
 chroma_db/
 mainframe.db
+
+# Mac OS System Files (The Global Kill Switch)
+.DS_Store
+**/.DS_Store
